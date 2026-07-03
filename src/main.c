@@ -1,28 +1,69 @@
+#ifndef _WIN32
+#include <ncurses.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
+#include "editor.h"
+#include "highlight.h"
+
+#ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
 #include <direct.h>
-#include "editor.h"
-#include "highlight.h"
+#define KEY_UP       72
+#define KEY_DOWN     80
+#define KEY_LEFT     75
+#define KEY_RIGHT    77
+#define KEY_HOME     71
+#define KEY_END      79
+#define KEY_PPAGE    73
+#define KEY_NPAGE    81
+#define KEY_DC       83
+#define KEY_BACKSPACE 8
+#define KEY_ENTER    13
+#define KEY_F(n)     (256 + n)
+#endif
+
+#ifndef _WIN32
+#define KEY_UP       0
+#define KEY_DOWN     0
+#define KEY_LEFT     0
+#define KEY_RIGHT    0
+#define KEY_HOME     0
+#define KEY_END      0
+#define KEY_PPAGE    0
+#define KEY_NPAGE    0
+#define KEY_DC       0
+#define KEY_BACKSPACE 0
+#define KEY_ENTER    0
+#define KEY_F(n)     (256 + n)
+#endif
 
 #define VERSION "1.0"
 #define MAX_TABS 16
 #define MAX_PATH_LEN 512
 #define MAX_SEARCH_LEN 256
 #define SIDEBAR_WIDTH 28
-#define MAX_W 300
-#define MAX_H 100
 
 typedef enum { MODE_EDITOR, MODE_FILETREE, MODE_TERMINAL, MODE_SEARCH, MODE_COMMAND } AppMode;
 typedef enum { PANEL_FILES, PANEL_SEARCH } SidebarPanel;
 
 typedef struct { EditorBuffer buf; } Tab;
 
+#ifdef _WIN32
 static HANDLE hConsole;
 static DWORD orig_mode;
+#endif
+
 static int con_w, con_h;
 static AppMode mode = MODE_EDITOR;
 static SidebarPanel sidebar_panel = PANEL_FILES;
@@ -56,53 +97,206 @@ static char input_prompt[128] = "";
 
 static int needs_redraw = 1;
 
-static char screen_chars[MAX_H][MAX_W];
-static WORD screen_attrs[MAX_H][MAX_W];
+/* ==================== PLATFORM ABSTRACTION ==================== */
 
-static void buf_put(int x, int y, char c, WORD attr) {
-    if (x >= 0 && x < con_w && y >= 0 && y < con_h) {
-        screen_chars[y][x] = c;
-        screen_attrs[y][x] = attr;
-    }
+static void plat_init(void) {
+#ifdef _WIN32
+    hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    GetConsoleMode(hConsole, &orig_mode);
+    SetConsoleMode(hConsole, orig_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_INPUT);
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+    SetConsoleTitleA("FrogCode - IDE");
+#else
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    curs_set(1);
+    start_color();
+    init_pair(1, COLOR_WHITE, COLOR_BLUE);
+    init_pair(2, COLOR_GREEN, COLOR_BLACK);
+    init_pair(3, COLOR_RED, COLOR_BLACK);
+    init_pair(4, COLOR_YELLOW, COLOR_BLACK);
+    init_pair(5, COLOR_CYAN, COLOR_BLACK);
+    init_pair(6, COLOR_BLACK, COLOR_GREEN);
+    init_pair(7, COLOR_WHITE, COLOR_GREEN);
+    init_pair(8, COLOR_GREEN, COLOR_GREEN);
+#endif
 }
 
-static void buf_str(int x, int y, const char *s, WORD attr) {
-    for (int i = 0; s[i]; i++) buf_put(x + i, y, s[i], attr);
+static void plat_cleanup(void) {
+#ifdef _WIN32
+    SetConsoleMode(hConsole, orig_mode);
+    system("cls");
+#else
+    endwin();
+#endif
 }
 
-static void buf_fill(int x, int y, int w, char c, WORD attr) {
-    for (int i = 0; i < w; i++) buf_put(x + i, y, c, attr);
-}
-
-static void buf_flush(void) {
-    COORD bufSize = { (SHORT)con_w, (SHORT)con_h };
-    COORD bufPos = { 0, 0 };
-    SMALL_RECT rect = { 0, 0, (SHORT)(con_w - 1), (SHORT)(con_h - 1) };
-    CHAR_INFO chars[MAX_H][MAX_W];
-    for (int y = 0; y < con_h; y++)
-        for (int x = 0; x < con_w; x++) {
-            chars[y][x].Char.AsciiChar = screen_chars[y][x];
-            chars[y][x].Attributes = screen_attrs[y][x];
-        }
-    WriteConsoleOutputA(hConsole, &chars[0][0], bufSize, bufPos, &rect);
-}
-
-static void buf_clear(void) {
-    WORD def = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    for (int y = 0; y < con_h; y++)
-        for (int x = 0; x < con_w; x++) {
-            screen_chars[y][x] = ' ';
-            screen_attrs[y][x] = def;
-        }
-}
-
-static void update_size(void) {
+static void plat_get_size(void) {
+#ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(hConsole, &csbi);
     con_w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
     con_h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
-    if (con_w > MAX_W) con_w = MAX_W;
-    if (con_h > MAX_H) con_h = MAX_H;
+#else
+    getmaxyx(stdscr, con_h, con_w);
+#endif
+}
+
+static void plat_goto(int x, int y) {
+#ifdef _WIN32
+    COORD pos = { (SHORT)x, (SHORT)y };
+    SetConsoleCursorPosition(hConsole, pos);
+#else
+    move(y, x);
+#endif
+}
+
+static void plat_color(int attr) {
+#ifdef _WIN32
+    SetConsoleTextAttribute(hConsole, attr);
+#else
+    if (attr == -1) { attroff(A_BOLD); return; }
+    attron(COLOR_PAIR(attr));
+#endif
+}
+
+static void plat_putchar(int c) {
+#ifdef _WIN32
+    putchar(c);
+#else
+    addch(c);
+#endif
+}
+
+static void plat_print(const char *s) {
+#ifdef _WIN32
+    printf("%s", s);
+#else
+    addstr(s);
+#endif
+}
+
+static void plat_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+#ifdef _WIN32
+    vprintf(fmt, args);
+#else
+    char buf[4096];
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    addstr(buf);
+#endif
+    va_end(args);
+}
+
+static void plat_clear_line(void) {
+#ifdef _WIN32
+    printf("\033[K");
+#else
+    clrtoeol();
+#endif
+}
+
+static void plat_refresh(void) {
+#ifdef _WIN32
+    fflush(stdout);
+#else
+    refresh();
+#endif
+}
+
+static int plat_getch(void) {
+#ifdef _WIN32
+    return _getch();
+#else
+    return getch();
+#endif
+}
+
+static int plat_kbhit(void) {
+#ifdef _WIN32
+    return _kbhit();
+#else
+    timeout(0);
+    int ch = getch();
+    timeout(-1);
+    if (ch == ERR) return 0;
+    ungetch(ch);
+    return 1;
+#endif
+}
+
+static void plat_set_title(const char *title) {
+#ifdef _WIN32
+    SetConsoleTitleA(title);
+#endif
+}
+
+/* Linux color mapping: 1=sidebar, 2=green, 3=red, 4=yellow, 5=cyan, 6=terminal, 7=title, 8=sidebar_bg */
+static int win_to_ncurses(WORD wattr) {
+#ifdef _WIN32
+    (void)wattr; return 0;
+#else
+    if (wattr & BACKGROUND_BLUE) return 1;
+    if (wattr & FOREGROUND_INTENSITY) return 2;
+    if (wattr & FOREGROUND_RED) return 3;
+    if (wattr & FOREGROUND_GREEN) return 2;
+    return -1;
+#endif
+}
+
+static void plat_set_color_win(WORD wattr) {
+#ifdef _WIN32
+    SetConsoleTextAttribute(hConsole, wattr);
+#else
+    int pair = win_to_ncurses(wattr);
+    if (pair > 0) attron(COLOR_PAIR(pair));
+    else attroff(A_BOLD);
+#endif
+}
+
+static void plat_cursor_visible(int vis) {
+#ifdef _WIN32
+    CONSOLE_CURSOR_INFO ci = { sizeof(ci), vis ? TRUE : FALSE };
+    SetConsoleCursorInfo(hConsole, &ci);
+#else
+    curs_set(vis ? 2 : 0);
+#endif
+}
+
+static int plat_file_exists(const char *path) {
+#ifdef _WIN32
+    return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+#else
+    struct stat st;
+    return stat(path, &st) == 0;
+#endif
+}
+
+static int plat_is_dir(const char *path) {
+#ifdef _WIN32
+    DWORD attr = GetFileAttributesA(path);
+    return (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY));
+#else
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    return S_ISDIR(st.st_mode);
+#endif
+}
+
+static void plat_mkdir(const char *path) {
+#ifdef _WIN32
+    CreateDirectoryA(path, NULL);
+#else
+    mkdir(path, 0755);
+#endif
+}
+
+static void plat_remove(const char *path) {
+    remove(path);
 }
 
 static EditorBuffer *cur_buf(void) {
@@ -153,6 +347,8 @@ static void ensure_scroll(EditorBuffer *eb) {
 
 /* ==================== FILE TREE ==================== */
 
+#ifdef _WIN32
+
 static void scan_directory(const char *dir, int depth) {
     WIN32_FIND_DATAA fd;
     char pattern[MAX_PATH_LEN];
@@ -177,6 +373,34 @@ static void scan_directory(const char *dir, int depth) {
     FindClose(hFind);
 }
 
+#else
+
+static void scan_directory(const char *dir, int depth) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+        if (ent->d_name[0] == '.') continue;
+        if (file_tree_count >= 512) break;
+        char fullpath[MAX_PATH_LEN];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, ent->d_name);
+        int is_dir = 0;
+        struct stat st;
+        if (stat(fullpath, &st) == 0) is_dir = S_ISDIR(st.st_mode);
+        if (is_dir)
+            snprintf(file_tree_names[file_tree_count], 256, "%*s[+] %s", depth * 2, "", ent->d_name);
+        else
+            snprintf(file_tree_names[file_tree_count], 256, "%*s    %s", depth * 2, "", ent->d_name);
+        snprintf(file_tree_entries[file_tree_count], MAX_PATH_LEN, "%s", fullpath);
+        file_tree_count++;
+        if (is_dir && depth < 3) scan_directory(fullpath, depth + 1);
+    }
+    closedir(d);
+}
+
+#endif
+
 static void refresh_file_tree(void) {
     file_tree_count = 0;
     file_tree_selected = 0;
@@ -187,11 +411,7 @@ static void refresh_file_tree(void) {
 static void open_file_from_tree(void) {
     if (file_tree_count == 0) return;
     char *path = file_tree_entries[file_tree_selected];
-    WIN32_FIND_DATAA fd;
-    HANDLE h = FindFirstFileA(path, &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    FindClose(h);
-    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return;
+    if (plat_is_dir(path)) return;
     if (tab_count < MAX_TABS) {
         for (int i = 0; i < tab_count; i++) {
             if (strcmp(tabs[i].buf.filepath, path) == 0) {
@@ -214,6 +434,7 @@ static void open_file_from_tree(void) {
 /* ==================== TERMINAL ==================== */
 
 static void terminal_execute(const char *cmd) {
+#ifdef _WIN32
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
     HANDLE hRead, hWrite;
     CreatePipe(&hRead, &hWrite, &sa, 0);
@@ -255,19 +476,37 @@ static void terminal_execute(const char *cmd) {
         terminal_out_len = strlen(terminal_out);
     }
     CloseHandle(hRead);
+#else
+    char full_cmd[4096];
+    snprintf(full_cmd, sizeof(full_cmd), "cd \"%s\" && %s 2>&1", work_dir, cmd);
+    FILE *fp = popen(full_cmd, "r");
+    if (!fp) {
+        snprintf(terminal_out, sizeof(terminal_out), "Ошибка запуска процесса");
+        terminal_out_len = strlen(terminal_out);
+        return;
+    }
+    terminal_out_len = 0;
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), fp)) {
+        int len = strlen(buf);
+        if (terminal_out_len + len < (int)sizeof(terminal_out) - 1) {
+            memcpy(terminal_out + terminal_out_len, buf, len);
+            terminal_out_len += len;
+            terminal_out[terminal_out_len] = '\0';
+        }
+    }
+    pclose(fp);
+#endif
 }
 
 /* ==================== CLANGD DOWNLOAD ==================== */
 
 static void download_clangd(void) {
     char check_path[MAX_PATH_LEN];
-    snprintf(check_path, sizeof(check_path), "%s\\.frogcode", work_dir);
-    DWORD attr = GetFileAttributesA(check_path);
-    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) return;
+    snprintf(check_path, sizeof(check_path), "%s/.frogcode", work_dir);
+    if (plat_is_dir(check_path)) return;
 
-    CreateDirectoryA(check_path, NULL);
-    snprintf(check_path, sizeof(check_path), "%s\\.frogcode\\clangd", work_dir);
-    CreateDirectoryA(check_path, NULL);
+    plat_mkdir(check_path);
 
     char url[1024];
 #ifdef _WIN64
@@ -279,11 +518,12 @@ static void download_clangd(void) {
 #endif
 
     char zip_path[MAX_PATH_LEN];
-    snprintf(zip_path, sizeof(zip_path), "%s\\.frogcode\\clangd.zip", work_dir);
+    snprintf(zip_path, sizeof(zip_path), "%s/.frogcode/clangd.zip", work_dir);
 
     snprintf(status_msg, sizeof(status_msg), "Скачивание clangd...");
     needs_redraw = 1;
 
+#ifdef _WIN32
     char ps_cmd[2048];
     snprintf(ps_cmd, sizeof(ps_cmd),
         "powershell -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%s' -OutFile '%s'\"",
@@ -294,10 +534,23 @@ static void download_clangd(void) {
     snprintf(extract_dir, sizeof(extract_dir), "%s\\.frogcode\\clangd", work_dir);
     char ps_extract[2048];
     snprintf(ps_extract, sizeof(ps_extract),
-        "powershell -Command \"Expand-Archive -Path '%s' -DestinationPath '%s' -Force\"",
+        "powershell -Command \"Expand-Archive -Path '%s' -DestinationPath '%s' -Force'",
         zip_path, extract_dir);
     system(ps_extract);
-    DeleteFileA(zip_path);
+#else
+    char curl_cmd[2048];
+    snprintf(curl_cmd, sizeof(curl_cmd), "curl -L '%s' -o '%s'", url, zip_path);
+    system(curl_cmd);
+
+    char extract_dir[MAX_PATH_LEN];
+    snprintf(extract_dir, sizeof(extract_dir), "%s/.frogcode/clangd", work_dir);
+    plat_mkdir(extract_dir);
+    char unzip_cmd[2048];
+    snprintf(unzip_cmd, sizeof(unzip_cmd), "unzip -o '%s' -d '%s'", zip_path, extract_dir);
+    system(unzip_cmd);
+#endif
+
+    plat_remove(zip_path);
 
     snprintf(status_msg, sizeof(status_msg), "clangd установлен");
     needs_redraw = 1;
@@ -320,9 +573,13 @@ static void build_and_run(void) {
         int len = dot - eb->filepath;
         memcpy(exe_path, eb->filepath, len);
         exe_path[len] = '\0';
+#ifdef _WIN32
         strcat(exe_path, ".exe");
+#else
+        strcat(exe_path, ".out");
+#endif
     } else {
-        snprintf(exe_path, sizeof(exe_path), "%s.exe", eb->filepath);
+        snprintf(exe_path, sizeof(exe_path), "%s.out", eb->filepath);
     }
 
     terminal_open = 1;
@@ -337,7 +594,7 @@ static void build_and_run(void) {
         snprintf(build_cmd, sizeof(build_cmd), "g++ -Wall -o \"%s\" \"%s\" 2>&1 && echo === OK === && \"%s\"",
                  exe_path, eb->filepath, exe_path);
     else if (strcmp(ext, ".py") == 0)
-        snprintf(build_cmd, sizeof(build_cmd), "python \"%s\"", eb->filepath);
+        snprintf(build_cmd, sizeof(build_cmd), "python3 \"%s\"", eb->filepath);
     else {
         snprintf(status_msg, sizeof(status_msg), "Неподдерживаемый тип файла: %s", ext);
         needs_redraw = 1;
@@ -357,38 +614,37 @@ static int num_width(EditorBuffer *eb) {
 }
 
 static void draw_all(void) {
-    update_size();
-    buf_clear();
+    plat_get_size();
+    plat_cursor_visible(0);
 
-    WORD title_attr = BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    WORD tab_active = BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    WORD tab_inactive = FOREGROUND_INTENSITY;
-    WORD sidebar_attr = BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    WORD sidebar_sel = BACKGROUND_RED | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    WORD line_num_attr = FOREGROUND_INTENSITY;
-    WORD def_attr = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-    WORD status_attr = BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-
+    plat_goto(0, 0);
+    plat_set_color_win(BACKGROUND_BLUE | BACKGROUND_GREEN | FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
     char title[128];
     snprintf(title, sizeof(title), " FrogCode v%s ", VERSION);
     int tlen = strlen(title);
-    int tpad = (con_w - tlen) / 2;
-    if (tpad < 0) tpad = 0;
-    buf_fill(0, 0, con_w, ' ', title_attr);
-    buf_str(tpad, 0, title, title_attr);
+    int pad = (con_w - tlen) / 2;
+    if (pad < 0) pad = 0;
+    for (int i = 0; i < con_w; i++) plat_putchar(' ');
+    plat_goto(pad, 0);
+    plat_print(title);
+    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
     if (tab_count > 0) {
+        plat_goto(0, 1);
         int x = 0;
         for (int i = 0; i < tab_count && x < con_w; i++) {
+            plat_set_color_win(i == active_tab
+                ? (BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE)
+                : (BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE | FOREGROUND_INTENSITY));
             char tlab[64];
             snprintf(tlab, sizeof(tlab), " %s%s ", tabs[i].buf.name, tabs[i].buf.modified ? "*" : "");
             int tl = strlen(tlab);
             if (x + tl > con_w) tl = con_w - x;
-            WORD a = (i == active_tab) ? tab_active : tab_inactive;
-            buf_str(x, 1, tlab, a);
+            plat_printf("%.*s", tl, tlab);
             x += tl;
         }
-        if (x < con_w) buf_fill(x, 1, con_w - x, ' ', def_attr);
+        while (x < con_w) { plat_putchar(' '); x++; }
+        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
     }
 
     int term_h = terminal_open ? 6 : 0;
@@ -396,19 +652,27 @@ static void draw_all(void) {
     int sidebar_w = sidebar_open ? SIDEBAR_WIDTH : 0;
 
     if (sidebar_open) {
-        buf_fill(0, 2, SIDEBAR_WIDTH, ' ', sidebar_attr);
-        const char *pname = sidebar_panel == PANEL_FILES ? " ФАЙЛЫ " : " ПОИСК ";
-        buf_str(0, 2, pname, sidebar_attr);
-
-        for (int i = 1; i < editor_h; i++) {
-            int idx = i - 1 + file_tree_scroll;
-            buf_fill(0, i + 2, SIDEBAR_WIDTH, ' ', sidebar_attr);
-            if (idx < file_tree_count) {
-                int sel = (idx == file_tree_selected);
-                WORD a = sel ? sidebar_sel : sidebar_attr;
-                int nlen = strlen(file_tree_names[idx]);
-                if (nlen > SIDEBAR_WIDTH) nlen = SIDEBAR_WIDTH;
-                buf_str(0, i + 2, file_tree_names[idx], a);
+        for (int i = 0; i < editor_h; i++) {
+            plat_goto(0, i + 2);
+            plat_set_color_win(BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            if (i == 0) {
+                const char *pname = sidebar_panel == PANEL_FILES ? " ФАЙЛЫ " : " ПОИСК ";
+                char padded[32];
+                snprintf(padded, sizeof(padded), "%-28s", pname);
+                plat_print(padded);
+            } else if (sidebar_panel == PANEL_FILES) {
+                int idx = i - 1 + file_tree_scroll;
+                if (idx < file_tree_count) {
+                    if (idx == file_tree_selected)
+                        plat_set_color_win(BACKGROUND_RED | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    char padded[256];
+                    snprintf(padded, sizeof(padded), "%-28s", file_tree_names[idx]);
+                    plat_print(padded);
+                } else {
+                    for (int p = 0; p < SIDEBAR_WIDTH; p++) plat_putchar(' ');
+                }
+            } else {
+                for (int p = 0; p < SIDEBAR_WIDTH; p++) plat_putchar(' ');
             }
         }
     }
@@ -419,72 +683,66 @@ static void draw_all(void) {
     if (text_w < 10) text_w = 10;
 
     for (int i = 0; i < editor_h; i++) {
-        buf_fill(sidebar_w, i + 2, con_w - sidebar_w, ' ', def_attr);
+        plat_goto(sidebar_w, i + 2);
+        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        plat_clear_line();
         if (!eb) continue;
         int line_idx = i + eb->scroll_y;
+        plat_goto(sidebar_w, i + 2);
         if (line_idx < eb->line_count) {
-            char nbuf[16];
-            snprintf(nbuf, sizeof(nbuf), "%*d ", nw, line_idx + 1);
-            buf_str(sidebar_w, i + 2, nbuf, line_num_attr);
-
+            plat_set_color_win(FOREGROUND_INTENSITY);
+            plat_printf("%*d ", nw, line_idx + 1);
             char *line = eb->lines[line_idx];
             int len = strlen(line);
             int j = eb->scroll_x;
-            int px = sidebar_w + nw + 1;
+            int printed = 0;
             char wbuf[256];
-
-            while (j < len && (px - sidebar_w - nw - 1) < text_w) {
+            while (j < len && printed < text_w) {
                 char c = line[j];
                 if (c == '#') {
-                    while (j < len && (px - sidebar_w - nw - 1) < text_w) {
-                        buf_put(px, i + 2, line[j], FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-                        j++; px++;
-                    }
+                    plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                    while (j < len && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 } else if (c == '"') {
-                    buf_put(px, i + 2, c, FOREGROUND_RED | FOREGROUND_INTENSITY);
-                    j++; px++;
-                    while (j < len && line[j] != '"' && (px - sidebar_w - nw - 1) < text_w) {
-                        buf_put(px, i + 2, line[j], FOREGROUND_RED | FOREGROUND_INTENSITY);
-                        j++; px++;
-                    }
-                    if (j < len) { buf_put(px, i + 2, line[j], FOREGROUND_RED | FOREGROUND_INTENSITY); j++; px++; }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_INTENSITY);
+                    plat_putchar(c); j++; printed++;
+                    while (j < len && line[j] != '"' && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
+                    if (j < len) { plat_putchar(line[j]); j++; printed++; }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 } else if (c == '/' && j + 1 < len && line[j+1] == '/') {
-                    while (j < len && (px - sidebar_w - nw - 1) < text_w) {
-                        buf_put(px, i + 2, line[j], FOREGROUND_INTENSITY);
-                        j++; px++;
-                    }
+                    plat_set_color_win(FOREGROUND_INTENSITY);
+                    while (j < len && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 } else if (isdigit(c)) {
-                    int wi = 0;
-                    while (j < len && (isalnum(line[j]) || line[j] == '.') && wi < 255) wbuf[wi++] = line[j++];
-                    for (int k = 0; k < wi && (px - sidebar_w - nw - 1) < text_w; k++) {
-                        buf_put(px, i + 2, wbuf[k], FOREGROUND_RED | FOREGROUND_GREEN);
-                        px++;
-                    }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN);
+                    while (j < len && (isalnum(line[j]) || line[j] == '.') && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
+                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 } else if (isalpha(c) || c == '_') {
                     int wi = 0;
                     while (j < len && (isalnum(line[j]) || line[j] == '_') && wi < 255) wbuf[wi++] = line[j++];
                     wbuf[wi] = '\0';
                     int kw = highlight_get_color(wbuf);
-                    WORD ka = kw ? kw : def_attr;
-                    for (int k = 0; k < wi && (px - sidebar_w - nw - 1) < text_w; k++) {
-                        buf_put(px, i + 2, wbuf[k], ka);
-                        px++;
-                    }
+                    if (kw) plat_set_color_win(kw);
+                    for (int k = 0; k < wi && printed < text_w; k++) { plat_putchar(wbuf[k]); printed++; }
+                    if (kw) plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 } else {
-                    buf_put(px, i + 2, c, def_attr);
-                    j++; px++;
+                    plat_putchar(c); j++; printed++;
                 }
             }
-            if (j < len) buf_put(px, i + 2, '>', FOREGROUND_INTENSITY);
+            if (j < len) { plat_set_color_win(FOREGROUND_INTENSITY); plat_putchar('>'); plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); }
         } else {
-            buf_str(sidebar_w, i + 2, "~", line_num_attr);
+            plat_set_color_win(FOREGROUND_INTENSITY);
+            plat_putchar('~');
         }
     }
 
     if (terminal_open) {
         int y0 = con_h - 6;
-        buf_fill(0, y0, con_w, ' ', FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        buf_str(0, y0, " ТЕРМИНАЛ ", FOREGROUND_GREEN | FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        plat_goto(0, y0);
+        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        plat_print(" ТЕРМИНАЛ ");
+        for (int i = 10; i < con_w; i++) plat_putchar(' ');
+        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
         char *lines_buf[64];
         int lc = 0;
@@ -494,31 +752,42 @@ static void draw_all(void) {
             if (copy_len > (int)sizeof(tmp) - 1) copy_len = (int)sizeof(tmp) - 1;
             memcpy(tmp, terminal_out, copy_len);
             tmp[copy_len] = '\0';
+#ifdef _WIN32
             char *ctx = NULL;
             char *tok = strtok_s(tmp, "\n", &ctx);
             while (tok && lc < 64) { lines_buf[lc++] = tok; tok = strtok_s(NULL, "\n", &ctx); }
+#else
+            char *ctx = NULL;
+            char *tok = strtok_r(tmp, "\n", &ctx);
+            while (tok && lc < 64) { lines_buf[lc++] = tok; tok = strtok_r(NULL, "\n", &ctx); }
+#endif
         }
         int start = lc > 4 ? lc - 4 : 0;
         for (int i = 0; i < 4; i++) {
-            buf_fill(0, y0 + 1 + i, con_w, ' ', def_attr);
+            plat_goto(0, y0 + 1 + i);
+            plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            plat_clear_line();
             if (start + i < lc) {
+                plat_set_color_win(FOREGROUND_INTENSITY);
                 int slen = strlen(lines_buf[start + i]);
-                if (slen > con_w - 1) slen = con_w - 1;
-                char tmpc = lines_buf[start + i][slen];
+                if (slen > con_w - 2) slen = con_w - 2;
+                char tc = lines_buf[start + i][slen];
                 lines_buf[start + i][slen] = '\0';
-                buf_str(1, y0 + 1 + i, lines_buf[start + i], FOREGROUND_INTENSITY);
-                lines_buf[start + i][slen] = tmpc;
+                plat_printf(" %s", lines_buf[start + i]);
+                lines_buf[start + i][slen] = tc;
             }
         }
 
-        buf_fill(0, con_h - 1, con_w, ' ', def_attr);
-        char prompt[4098];
-        snprintf(prompt, sizeof(prompt), ">%s", terminal_cmd);
-        buf_str(0, con_h - 1, prompt, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        plat_goto(0, con_h - 1);
+        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        plat_printf(">%s", terminal_cmd);
+        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        plat_clear_line();
     }
 
     int sy = terminal_open ? con_h - 7 : con_h - 1;
-    buf_fill(0, sy, con_w, ' ', status_attr);
+    plat_goto(0, sy);
+    plat_set_color_win(BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
     char left[256], right[256];
     if (mode == MODE_FILETREE)
         snprintf(left, sizeof(left), " ФАЙЛЫ ");
@@ -529,19 +798,20 @@ static void draw_all(void) {
     else
         snprintf(left, sizeof(left), " Готово ");
     snprintf(right, sizeof(right), " FrogCode v%s ", VERSION);
-    buf_str(0, sy, left, status_attr);
+    int llen = strlen(left);
     int rlen = strlen(right);
-    if (rlen < con_w) buf_str(con_w - rlen, sy, right, status_attr);
+    int spad = con_w - llen - rlen;
+    if (spad < 0) spad = 0;
+    plat_printf("%s%*s%s", left, spad, "", right);
+    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
     if (input_mode) {
-        int iy = con_h - 1;
-        buf_fill(0, iy, con_w, ' ', FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        char ibuf[640];
-        snprintf(ibuf, sizeof(ibuf), "%s%s", input_prompt, input_buf);
-        buf_str(0, iy, ibuf, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        plat_goto(0, con_h - 1);
+        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        plat_printf("%s%s", input_prompt, input_buf);
+        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        plat_clear_line();
     }
-
-    buf_flush();
 
     if (eb && mode == MODE_EDITOR) {
         ensure_bounds(eb);
@@ -549,12 +819,11 @@ static void draw_all(void) {
         int dy = eb->cursor_y - eb->scroll_y;
         int dx = eb->cursor_x - eb->scroll_x;
         if (dx < 0) dx = 0;
-        COORD pos = { (SHORT)(sidebar_w + nw + 1 + dx), (SHORT)(dy + 2) };
-        SetConsoleCursorPosition(hConsole, pos);
+        plat_goto(sidebar_w + nw + 1 + dx, dy + 2);
     }
 
-    CONSOLE_CURSOR_INFO ci = { sizeof(ci), TRUE };
-    SetConsoleCursorInfo(hConsole, &ci);
+    plat_cursor_visible(1);
+    plat_refresh();
     needs_redraw = 0;
 }
 
@@ -652,7 +921,11 @@ static void process_input(int ch) {
             terminal_execute(terminal_cmd);
             terminal_cmd_len = 0; terminal_cmd[0] = '\0';
         } else if (ch == 27) { mode = MODE_EDITOR; terminal_cmd_len = 0; }
+#ifdef _WIN32
         else if (ch == 8) { if (terminal_cmd_len > 0) terminal_cmd[--terminal_cmd_len] = '\0'; }
+#else
+        else if (ch == KEY_BACKSPACE) { if (terminal_cmd_len > 0) terminal_cmd[--terminal_cmd_len] = '\0'; }
+#endif
         else if (ch >= 32 && ch < 127 && terminal_cmd_len < (int)sizeof(terminal_cmd) - 1) {
             terminal_cmd[terminal_cmd_len++] = ch;
             terminal_cmd[terminal_cmd_len] = '\0';
@@ -664,9 +937,13 @@ static void process_input(int ch) {
     if (mode == MODE_FILETREE) {
         switch (ch) {
             case 27: case 'q': mode = MODE_EDITOR; break;
-            case 72: if (file_tree_selected > 0) file_tree_selected--; break;
-            case 80: if (file_tree_selected < file_tree_count - 1) file_tree_selected++; break;
+            case KEY_UP: case 'k': if (file_tree_selected > 0) file_tree_selected--; break;
+            case KEY_DOWN: case 'j': if (file_tree_selected < file_tree_count - 1) file_tree_selected++; break;
+#ifdef _WIN32
             case 13: open_file_from_tree(); break;
+#else
+            case KEY_ENTER: open_file_from_tree(); break;
+#endif
             case 'r': refresh_file_tree(); break;
         }
         int vis = con_h - 4;
@@ -676,16 +953,14 @@ static void process_input(int ch) {
         return;
     }
 
-    int ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    int shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-
+#ifdef _WIN32
     if (ch == 0 || ch == 224) {
         int ch2 = _getch();
         EditorBuffer *eb = cur_buf();
         switch (ch2) {
             case 59: start_input("Поиск: "); mode = MODE_SEARCH; return;
             case 68: if (eb) editor_toggle_comment(eb); return;
-            case 60: terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; needs_redraw = 1; return;
+            case 60: terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; return;
             case 63: build_and_run(); return;
             case 71: if (eb) eb->cursor_x = 0; return;
             case 79: if (eb) eb->cursor_x = strlen(eb->lines[eb->cursor_y]); return;
@@ -699,6 +974,32 @@ static void process_input(int ch) {
         }
         return;
     }
+#else
+    EditorBuffer *eb = cur_buf();
+    switch (ch) {
+        case KEY_F(1): start_input("Поиск: "); mode = MODE_SEARCH; return;
+        case KEY_F(3): terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; needs_redraw = 1; return;
+        case KEY_F(5): build_and_run(); return;
+        case KEY_UP: if (eb) eb->cursor_y--; return;
+        case KEY_DOWN: if (eb) eb->cursor_y++; return;
+        case KEY_LEFT: if (eb) eb->cursor_x--; return;
+        case KEY_RIGHT: if (eb) eb->cursor_x++; return;
+        case KEY_PPAGE: if (eb) eb->cursor_y -= 5; return;
+        case KEY_NPAGE: if (eb) eb->cursor_y += 5; return;
+        case KEY_HOME: if (eb) eb->cursor_x = 0; return;
+        case KEY_END: if (eb) eb->cursor_x = strlen(eb->lines[eb->cursor_y]); return;
+        case KEY_DC: if (eb) editor_delete_forward(eb); return;
+    }
+#endif
+
+    int ctrl = 0;
+    int shift = 0;
+#ifdef _WIN32
+    ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+#else
+    if (ch >= 1 && ch <= 26) { ctrl = 1; ch = ch + 'a' - 1; }
+#endif
 
     if (ctrl) {
         EditorBuffer *eb = cur_buf();
@@ -721,22 +1022,27 @@ static void process_input(int ch) {
 
     if (shift) {
         switch (ch) {
-            case 9: sidebar_open = !sidebar_open; mode = sidebar_open ? MODE_FILETREE : MODE_EDITOR; if (sidebar_open) refresh_file_tree(); needs_redraw = 1; return;
+            case '\t': sidebar_open = !sidebar_open; mode = sidebar_open ? MODE_FILETREE : MODE_EDITOR; if (sidebar_open) refresh_file_tree(); needs_redraw = 1; return;
             case 'K': terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; needs_redraw = 1; return;
         }
         return;
     }
 
-    EditorBuffer *eb = cur_buf();
-    if (!eb) return;
+    EditorBuffer *eb2 = cur_buf();
+    if (!eb2) return;
     switch (ch) {
-        case 13: editor_newline(eb); break;
-        case 8: editor_backspace(eb); break;
-        case 9: editor_tab(eb); break;
-        case 3: if (eb->filepath[0]) { editor_save(eb); snprintf(status_msg, sizeof(status_msg), "Сохранено"); } break;
-        case 24: editor_delete_line(eb); break;
+#ifdef _WIN32
+        case 13: editor_newline(eb2); break;
+        case 8: editor_backspace(eb2); break;
+#else
+        case KEY_ENTER: editor_newline(eb2); break;
+        case KEY_BACKSPACE: editor_backspace(eb2); break;
+#endif
+        case '\t': editor_tab(eb2); break;
+        case 3: if (eb2->filepath[0]) { editor_save(eb2); snprintf(status_msg, sizeof(status_msg), "Сохранено"); } break;
+        case 24: editor_delete_line(eb2); break;
         default:
-            if (ch >= 32 && ch < 127) editor_insert_char(eb, (char)ch);
+            if (ch >= 32 && ch < 127) editor_insert_char(eb2, (char)ch);
             break;
     }
     needs_redraw = 1;
@@ -746,32 +1052,26 @@ static void process_input(int ch) {
 
 static void init_work_dir(void) {
     if (work_dir[0]) return;
+#ifdef _WIN32
     DWORD len = GetCurrentDirectoryA(sizeof(work_dir), work_dir);
     if (len == 0) strcpy(work_dir, ".");
+#else
+    if (!getcwd(work_dir, sizeof(work_dir))) strcpy(work_dir, ".");
+#endif
 }
 
 static void startup_download_clangd(void) {
     char check[MAX_PATH_LEN];
-    snprintf(check, sizeof(check), "%s\\.frogcode", work_dir);
-    DWORD attr = GetFileAttributesA(check);
-    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) return;
+    snprintf(check, sizeof(check), "%s/.frogcode", work_dir);
+    if (plat_is_dir(check)) return;
     download_clangd();
 }
 
 int main(int argc, char *argv[]) {
-    hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleMode(hConsole, &orig_mode);
-    SetConsoleMode(hConsole, orig_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_INPUT);
-    SetConsoleOutputCP(65001);
-    SetConsoleCP(65001);
-    SetConsoleTitleA("FrogCode - IDE для C/C++");
-
-    CONSOLE_CURSOR_INFO ci = { sizeof(ci), FALSE };
-    SetConsoleCursorInfo(hConsole, &ci);
-
-    init_work_dir();
+    plat_init();
+    plat_set_title("FrogCode - IDE");
     highlight_init();
-    update_size();
+    plat_get_size();
     new_file();
 
     if (argc > 1 && argv[1]) {
@@ -790,18 +1090,21 @@ int main(int argc, char *argv[]) {
     needs_redraw = 1;
     while (1) {
         if (needs_redraw) draw_all();
-        if (_kbhit()) {
-            int ch = _getch();
+        if (plat_kbhit()) {
+            int ch = plat_getch();
             if (ch == 27 && !input_mode && mode == MODE_EDITOR) break;
             process_input(ch);
             needs_redraw = 1;
         } else {
+#ifdef _WIN32
             Sleep(16);
+#else
+            usleep(16000);
+#endif
         }
     }
 
     for (int i = 0; i < tab_count; i++) editor_free(&tabs[i].buf);
-    SetConsoleMode(hConsole, orig_mode);
-    system("cls");
+    plat_cleanup();
     return 0;
 }
