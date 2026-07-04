@@ -1,4 +1,6 @@
 ./obj
 *.exe
 *.o
-.frogcode/
+*.d
+tools/
+.frogcode_setup

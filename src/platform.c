@@ -125,6 +125,9 @@ int plat_kbhit(void) {
 void plat_set_title(const char *title) {
 #ifdef _WIN32
     SetConsoleTitleA(title);
+#else
+    printf("\033]0;%s\007", title);
+    fflush(stdout);
 #endif
 }
 
@@ -167,4 +170,21 @@ void plat_mkdir(const char *path) {
 
 void plat_remove(const char *path) {
     remove(path);
+}
+
+void plat_get_exe_dir(char *buf, int buf_size) {
+#ifdef _WIN32
+    GetModuleFileNameA(NULL, buf, buf_size);
+    char *slash = strrchr(buf, '\\');
+    if (slash) *slash = '\0';
+#else
+    ssize_t len = readlink("/proc/self/exe", buf, buf_size - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        char *slash = strrchr(buf, '/');
+        if (slash) *slash = '\0';
+    } else {
+        strcpy(buf, ".");
+    }
+#endif
 }

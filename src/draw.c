@@ -3,6 +3,9 @@
 #include "editor.h"
 #include "highlight.h"
 #include "draw.h"
+#include "setup.h"
+#include "project.h"
+#include "hub.h"
 
 static void ensure_line_check(EditorBuffer *eb, int idx) {
     if (idx >= 0 && idx < MAX_LINES && !eb->lines[idx]) {
@@ -55,6 +58,19 @@ static int num_width(EditorBuffer *eb) {
 void draw_all(void) {
     plat_get_size();
     plat_cursor_visible(0);
+
+    if (mode == MODE_SETUP) {
+        setup_draw();
+        return;
+    }
+    if (mode == MODE_PROJECT) {
+        project_draw();
+        return;
+    }
+    if (mode == MODE_HUB) {
+        hub_draw();
+        return;
+    }
 
     plat_goto(0, 0);
     set_color_fgbg(CLR_BLACK, CLR_WHITE);

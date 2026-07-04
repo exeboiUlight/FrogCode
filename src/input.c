@@ -4,6 +4,9 @@
 #include "filetree.h"
 #include "terminal.h"
 #include "input.h"
+#include "setup.h"
+#include "project.h"
+#include "hub.h"
 
 void start_input(const char *prompt) {
     input_mode = 1;
@@ -88,6 +91,21 @@ void process_input(int ch) {
             }
         }
         needs_redraw = 1;
+        return;
+    }
+
+    if (mode == MODE_SETUP) {
+        setup_input(ch);
+        return;
+    }
+
+    if (mode == MODE_PROJECT) {
+        project_input(ch);
+        return;
+    }
+
+    if (mode == MODE_HUB) {
+        hub_input(ch);
         return;
     }
 
@@ -183,6 +201,8 @@ void process_input(int ch) {
             case 's': save_file_dialog(); return;
             case 'o': open_file_dialog(); return;
             case 'n': new_file(); return;
+            case 'p': project_init(); mode = MODE_PROJECT; return;
+            case 'h': hub_init(); mode = MODE_HUB; return;
             case 'w': close_tab(); return;
             case 'a': select_all(); return;
             case 'g': goto_line_dialog(); return;

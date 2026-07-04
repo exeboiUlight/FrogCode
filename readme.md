@@ -1,9 +1,9 @@
 # FrogCode
 
 ## Todo 0.1
-- [ ] add c++
+- [x] add c++
 - [ ] add make, cmake
 - [ ] library browser
 
 ## Notes
-Currently, the main idea is to make IDE for C and C++
+The current idea is to create a console-based IDE for various languages ​​that resembles JetBrains IDEs.

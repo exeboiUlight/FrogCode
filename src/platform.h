@@ -90,5 +90,6 @@ int  plat_file_exists(const char *path);
 int  plat_is_dir(const char *path);
 void plat_mkdir(const char *path);
 void plat_remove(const char *path);
+void plat_get_exe_dir(char *buf, int buf_size);
 
 #endif
