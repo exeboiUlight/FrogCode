@@ -31,4 +31,13 @@ else
 	./$(TARGET)
 endif
 
-.PHONY: all clean run
+install: $(TARGET)
+ifeq ($(OS),Windows_NT)
+	export PATH := ./
+else
+    mkdir -p $(PREFIX)/bin
+    cp $(TARGET) $(PREFIX)/bin/$(TARGET)
+    chmod 755 $(PREFIX)/bin/$(TARGET)
+endif
+
+.PHONY: all clean run intall
