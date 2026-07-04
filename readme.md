@@ -1,8 +1,9 @@
-Этот проект предстовляет собой переделку старого проекта, который был написан на питоне. Я не доволен тем, что он в собраном виде весил 15 мегабайт. (файл old.py - это старая версия frogcode).
+# FrogCode
 
-0.1
+## Todo 0.1
 - [ ] add c++
 - [ ] add make, cmake
-- [ ] libery browser
+- [ ] library browser
 
-Сейчас (в отличии от прошлого) хочется сделать IDE для моего второго любимого языка: c.
+## Notes
+Currently, the main idea is to make IDE for C and C++
