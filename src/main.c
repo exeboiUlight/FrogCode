@@ -135,6 +135,7 @@ static void plat_init(void) {
     initscr();
     cbreak();
     noecho();
+    nonl();
     keypad(stdscr, TRUE);
     curs_set(1);
     start_color();
@@ -457,7 +458,7 @@ static void terminal_execute(const char *cmd) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     } else {
-        snprintf(terminal_out, sizeof(terminal_out), "Ошибка запуска процесса");
+        snprintf(terminal_out, sizeof(terminal_out), "Failed to start process");
         terminal_out_len = strlen(terminal_out);
     }
     CloseHandle(hRead);
@@ -466,7 +467,7 @@ static void terminal_execute(const char *cmd) {
     snprintf(full_cmd, sizeof(full_cmd), "cd \"%s\" && %s 2>&1", work_dir, cmd);
     FILE *fp = popen(full_cmd, "r");
     if (!fp) {
-        snprintf(terminal_out, sizeof(terminal_out), "Ошибка запуска процесса");
+        snprintf(terminal_out, sizeof(terminal_out), "Failed to start process");
         terminal_out_len = strlen(terminal_out);
         return;
     }
@@ -484,69 +485,12 @@ static void terminal_execute(const char *cmd) {
 #endif
 }
 
-/* ==================== CLANGD DOWNLOAD ==================== */
-
-static void download_clangd(void) {
-    char check_path[MAX_PATH_LEN];
-    snprintf(check_path, sizeof(check_path), "%s/.frogcode", work_dir);
-    if (plat_is_dir(check_path)) return;
-
-    plat_mkdir(check_path);
-
-    char url[1024];
-#ifdef _WIN64
-    snprintf(url, sizeof(url), "https://github.com/clangd/clangd/releases/download/22.1.6/clangd-windows-22.1.6.zip");
-#elif defined(__APPLE__)
-    snprintf(url, sizeof(url), "https://github.com/clangd/clangd/releases/download/22.1.6/clangd-mac-22.1.6.zip");
-#else
-    snprintf(url, sizeof(url), "https://github.com/clangd/clangd/releases/download/22.1.6/clangd-linux-22.1.6.zip");
-#endif
-
-    char zip_path[MAX_PATH_LEN];
-    snprintf(zip_path, sizeof(zip_path), "%s/.frogcode/clangd.zip", work_dir);
-
-    snprintf(status_msg, sizeof(status_msg), "Скачивание clangd...");
-    needs_redraw = 1;
-
-#ifdef _WIN32
-    char ps_cmd[2048];
-    snprintf(ps_cmd, sizeof(ps_cmd),
-        "powershell -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%s' -OutFile '%s'\"",
-        url, zip_path);
-    system(ps_cmd);
-
-    char extract_dir[MAX_PATH_LEN];
-    snprintf(extract_dir, sizeof(extract_dir), "%s\\.frogcode\\clangd", work_dir);
-    char ps_extract[2048];
-    snprintf(ps_extract, sizeof(ps_extract),
-        "powershell -Command \"Expand-Archive -Path '%s' -DestinationPath '%s' -Force'",
-        zip_path, extract_dir);
-    system(ps_extract);
-#else
-    char curl_cmd[2048];
-    snprintf(curl_cmd, sizeof(curl_cmd), "curl -L '%s' -o '%s'", url, zip_path);
-    system(curl_cmd);
-
-    char extract_dir[MAX_PATH_LEN];
-    snprintf(extract_dir, sizeof(extract_dir), "%s/.frogcode/clangd", work_dir);
-    plat_mkdir(extract_dir);
-    char unzip_cmd[2048];
-    snprintf(unzip_cmd, sizeof(unzip_cmd), "unzip -o '%s' -d '%s'", zip_path, extract_dir);
-    system(unzip_cmd);
-#endif
-
-    plat_remove(zip_path);
-
-    snprintf(status_msg, sizeof(status_msg), "clangd установлен");
-    needs_redraw = 1;
-}
-
 /* ==================== COMPILER ==================== */
 
 static void build_and_run(void) {
     EditorBuffer *eb = cur_buf();
     if (!eb || !eb->filepath[0]) {
-        snprintf(status_msg, sizeof(status_msg), "Сначала сохраните файл (Ctrl+S)");
+        snprintf(status_msg, sizeof(status_msg), "Save file first (Ctrl+S)");
         needs_redraw = 1;
         return;
     }
@@ -581,7 +525,7 @@ static void build_and_run(void) {
     else if (strcmp(ext, ".py") == 0)
         snprintf(build_cmd, sizeof(build_cmd), "python3 \"%s\"", eb->filepath);
     else {
-        snprintf(status_msg, sizeof(status_msg), "Неподдерживаемый тип файла: %s", ext);
+        snprintf(status_msg, sizeof(status_msg), "Unsupported file type: %s", ext);
         needs_redraw = 1;
         return;
     }
@@ -640,7 +584,7 @@ static void draw_all(void) {
             plat_goto(0, i + 2);
             if (i == 0) {
                 set_color_fgbg(CLR_BLACK, CLR_WHITE);
-                const char *pname = sidebar_panel == PANEL_FILES ? " ФАЙЛЫ " : " ПОИСК ";
+                const char *pname = sidebar_panel == PANEL_FILES ? " FILES " : " SEARCH ";
                 char padded[32];
                 snprintf(padded, sizeof(padded), "%-28s", pname);
                 plat_print(padded);
@@ -728,7 +672,7 @@ static void draw_all(void) {
         int y0 = con_h - 6;
         plat_goto(0, y0);
         set_color(CLR_GREEN);
-        plat_print(" ТЕРМИНАЛ ");
+        plat_print(" TERMINAL ");
         for (int i = 10; i < con_w; i++) plat_putchar(' ');
         reset_color();
 
@@ -778,13 +722,13 @@ static void draw_all(void) {
     set_color_fgbg(CLR_BLACK, CLR_WHITE);
     char left[256], right[256];
     if (mode == MODE_FILETREE)
-        snprintf(left, sizeof(left), " ФАЙЛЫ ");
+        snprintf(left, sizeof(left), " FILES ");
     else if (mode == MODE_TERMINAL)
-        snprintf(left, sizeof(left), " ТЕРМИНАЛ ");
+        snprintf(left, sizeof(left), " TERMINAL ");
     else if (eb)
         snprintf(left, sizeof(left), " Ln %d, Col %d %s ", eb->cursor_y + 1, eb->cursor_x + 1, eb->modified ? "+" : "");
     else
-        snprintf(left, sizeof(left), " Готово ");
+        snprintf(left, sizeof(left), " Ready ");
     snprintf(right, sizeof(right), " FrogCode v%s ", VERSION);
     int llen = strlen(left);
     int rlen = strlen(right);
@@ -836,21 +780,21 @@ static void handle_input_key(int ch) {
     needs_redraw = 1;
 }
 
-static void open_file_dialog(void) { start_input("Открыть файл: "); needs_redraw = 1; }
+static void open_file_dialog(void) { start_input("Open file: "); needs_redraw = 1; }
 
 static void save_file_dialog(void) {
     EditorBuffer *eb = cur_buf();
     if (!eb) return;
     if (eb->filepath[0]) {
         editor_save(eb);
-        snprintf(status_msg, sizeof(status_msg), "Сохранено: %s", eb->name);
+        snprintf(status_msg, sizeof(status_msg), "Saved: %s", eb->name);
     } else {
-        start_input("Сохранить как: ");
+        start_input("Save as: ");
     }
     needs_redraw = 1;
 }
 
-static void goto_line_dialog(void) { start_input("Перейти к строке: "); needs_redraw = 1; }
+static void goto_line_dialog(void) { start_input("Go to line: "); needs_redraw = 1; }
 
 static void new_file(void) {
     if (tab_count >= MAX_TABS) return;
@@ -881,20 +825,20 @@ static void process_input(int ch) {
     if (input_mode) {
         handle_input_key(ch);
         if (!input_mode && input_buf[0]) {
-            if (strcmp(input_prompt, "Открыть файл: ") == 0) {
+            if (strcmp(input_prompt, "Open file: ") == 0) {
                 if (tab_count < MAX_TABS) {
                     editor_init(&tabs[tab_count].buf);
                     if (editor_load(&tabs[tab_count].buf, input_buf) == 0) {
                         active_tab = tab_count; tab_count++;
                     }
                 }
-            } else if (strcmp(input_prompt, "Сохранить как: ") == 0) {
+            } else if (strcmp(input_prompt, "Save as: ") == 0) {
                 EditorBuffer *eb = cur_buf();
                 if (eb) { editor_set_file(eb, input_buf); editor_save(eb); }
-            } else if (strcmp(input_prompt, "Перейти к строке: ") == 0) {
+            } else if (strcmp(input_prompt, "Go to line: ") == 0) {
                 EditorBuffer *eb = cur_buf();
                 if (eb) editor_goto_line(eb, atoi(input_buf));
-            } else if (strcmp(input_prompt, "Поиск: ") == 0) {
+            } else if (strcmp(input_prompt, "Search: ") == 0) {
                 snprintf(search_query, sizeof(search_query), "%s", input_buf);
                 search_active = (search_query[0] != '\0');
             }
@@ -946,7 +890,7 @@ static void process_input(int ch) {
         int ch2 = _getch();
         EditorBuffer *eb = cur_buf();
         switch (ch2) {
-            case 59: start_input("Поиск: "); mode = MODE_SEARCH; return;
+            case 59: start_input("Search: "); mode = MODE_SEARCH; return;
             case 68: if (eb) editor_toggle_comment(eb); return;
             case 60: terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; return;
             case 63: build_and_run(); return;
@@ -965,7 +909,7 @@ static void process_input(int ch) {
 #else
     EditorBuffer *eb = cur_buf();
     switch (ch) {
-        case KEY_F(1): start_input("Поиск: "); mode = MODE_SEARCH; return;
+        case KEY_F(1): start_input("Search: "); mode = MODE_SEARCH; return;
         case KEY_F(3): terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; needs_redraw = 1; return;
         case KEY_F(5): build_and_run(); return;
         case KEY_UP: if (eb) eb->cursor_y--; return;
@@ -986,7 +930,7 @@ static void process_input(int ch) {
     ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 #else
-    if (ch >= 1 && ch <= 26) { ctrl = 1; ch = ch + 'a' - 1; }
+    if (ch >= 1 && ch <= 26 && ch != '\t' && ch != '\r' && ch != '\n') { ctrl = 1; ch = ch + 'a' - 1; }
 #endif
 
     if (ctrl) {
@@ -998,7 +942,7 @@ static void process_input(int ch) {
             case 'w': close_tab(); return;
             case 'a': select_all(); return;
             case 'g': goto_line_dialog(); return;
-            case 'f': start_input("Поиск: "); mode = MODE_SEARCH; return;
+            case 'f': start_input("Search: "); mode = MODE_SEARCH; return;
             case 'd': if (eb) editor_duplicate_line(eb); return;
             case 'b': sidebar_open = !sidebar_open; return;
             case '`': terminal_open = !terminal_open; mode = terminal_open ? MODE_TERMINAL : MODE_EDITOR; return;
@@ -1007,6 +951,16 @@ static void process_input(int ch) {
         }
         return;
     }
+
+#ifndef _WIN32
+    if (ch == KEY_BTAB) {
+        sidebar_open = !sidebar_open;
+        mode = sidebar_open ? MODE_FILETREE : MODE_EDITOR;
+        if (sidebar_open) refresh_file_tree();
+        needs_redraw = 1;
+        return;
+    }
+#endif
 
     if (shift) {
         switch (ch) {
@@ -1023,11 +977,11 @@ static void process_input(int ch) {
         case 13: editor_newline(eb2); break;
         case 8: editor_backspace(eb2); break;
 #else
-        case KEY_ENTER: editor_newline(eb2); break;
+        case '\r': case '\n': case KEY_ENTER: editor_newline(eb2); break;
         case KEY_BACKSPACE: editor_backspace(eb2); break;
 #endif
         case '\t': editor_tab(eb2); break;
-        case 3: if (eb2->filepath[0]) { editor_save(eb2); snprintf(status_msg, sizeof(status_msg), "Сохранено"); } break;
+        case 3: if (eb2->filepath[0]) { editor_save(eb2); snprintf(status_msg, sizeof(status_msg), "Saved"); } break;
         case 24: editor_delete_line(eb2); break;
         default:
             if (ch >= 32 && ch < 127) editor_insert_char(eb2, (char)ch);
@@ -1048,13 +1002,6 @@ static void init_work_dir(void) {
 #endif
 }
 
-static void startup_download_clangd(void) {
-    char check[MAX_PATH_LEN];
-    snprintf(check, sizeof(check), "%s/.frogcode", work_dir);
-    if (plat_is_dir(check)) return;
-    download_clangd();
-}
-
 int main(int argc, char *argv[]) {
     plat_init();
     plat_set_title("FrogCode - IDE");
@@ -1069,27 +1016,18 @@ int main(int argc, char *argv[]) {
         if (len > 0 && (p[len-1] == '"' || p[len-1] == '\'')) p[len-1] = '\0';
         editor_free(&tabs[active_tab].buf);
         if (editor_load(&tabs[active_tab].buf, p) == 0)
-            snprintf(status_msg, sizeof(status_msg), "Открыт: %s", tabs[active_tab].buf.name);
+            snprintf(status_msg, sizeof(status_msg), "Opened: %s", tabs[active_tab].buf.name);
     }
 
-    snprintf(status_msg, sizeof(status_msg), "FrogCode v%s | Shift+Tab: Файлы | Shift+K: Терминал | F5: Запуск", VERSION);
-    startup_download_clangd();
+    snprintf(status_msg, sizeof(status_msg), "FrogCode v%s | Shift+Tab: Files | Shift+K: Terminal | F5: Run", VERSION);
 
     needs_redraw = 1;
     while (1) {
         if (needs_redraw) draw_all();
-        if (plat_kbhit()) {
-            int ch = plat_getch();
-            if (ch == 27 && !input_mode && mode == MODE_EDITOR) break;
-            process_input(ch);
-            needs_redraw = 1;
-        } else {
-#ifdef _WIN32
-            Sleep(16);
-#else
-            usleep(16000);
-#endif
-        }
+        int ch = plat_getch();
+        if (ch == 27 && !input_mode && mode == MODE_EDITOR) break;
+        process_input(ch);
+        needs_redraw = 1;
     }
 
     for (int i = 0; i < tab_count; i++) editor_free(&tabs[i].buf);

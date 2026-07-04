@@ -10,7 +10,7 @@ void editor_init(EditorBuffer *eb) {
     eb->lines[0] = malloc(MAX_LINE_LEN);
     eb->lines[0][0] = '\0';
     eb->filepath[0] = '\0';
-    strcpy(eb->name, "Без имени");
+    strcpy(eb->name, "Untitled");
 }
 
 void editor_free(EditorBuffer *eb) {
