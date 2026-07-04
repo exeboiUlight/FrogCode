@@ -603,7 +603,7 @@ static void draw_all(void) {
     plat_cursor_visible(0);
 
     plat_goto(0, 0);
-    set_color_fgbg(CLR_WHITE, CLR_BLUE);
+    set_color_fgbg(CLR_BLACK, CLR_WHITE);
     char title[128];
     snprintf(title, sizeof(title), " FrogCode v%s ", VERSION);
     int tlen = strlen(title);
@@ -618,8 +618,8 @@ static void draw_all(void) {
         plat_goto(0, 1);
         int x = 0;
         for (int i = 0; i < tab_count && x < con_w; i++) {
-            set_color_fgbg(i == active_tab ? CLR_WHITE : CLR_GREEN,
-                           i == active_tab ? CLR_BLUE : CLR_BLACK);
+            set_color_fgbg(i == active_tab ? CLR_BLACK : CLR_GREEN,
+                           i == active_tab ? CLR_WHITE : CLR_BLACK);
             char tlab[64];
             snprintf(tlab, sizeof(tlab), " %s%s ", tabs[i].buf.name, tabs[i].buf.modified ? "*" : "");
             int tl = strlen(tlab);
@@ -638,20 +638,24 @@ static void draw_all(void) {
     if (sidebar_open) {
         for (int i = 0; i < editor_h; i++) {
             plat_goto(0, i + 2);
-            set_color_fgbg(CLR_WHITE, CLR_BLUE);
             if (i == 0) {
+                set_color_fgbg(CLR_BLACK, CLR_WHITE);
                 const char *pname = sidebar_panel == PANEL_FILES ? " ФАЙЛЫ " : " ПОИСК ";
                 char padded[32];
                 snprintf(padded, sizeof(padded), "%-28s", pname);
                 plat_print(padded);
+                reset_color();
             } else if (sidebar_panel == PANEL_FILES) {
                 int idx = i - 1 + file_tree_scroll;
                 if (idx < file_tree_count) {
                     if (idx == file_tree_selected)
                         set_color_fgbg(CLR_WHITE, CLR_RED);
+                    else
+                        reset_color();
                     char padded[256];
                     snprintf(padded, sizeof(padded), "%-28s", file_tree_names[idx]);
                     plat_print(padded);
+                    reset_color();
                 } else {
                     for (int p = 0; p < SIDEBAR_WIDTH; p++) plat_putchar(' ');
                 }
@@ -771,7 +775,7 @@ static void draw_all(void) {
 
     int sy = terminal_open ? con_h - 7 : con_h - 1;
     plat_goto(0, sy);
-    set_color_fgbg(CLR_WHITE, CLR_BLUE);
+    set_color_fgbg(CLR_BLACK, CLR_WHITE);
     char left[256], right[256];
     if (mode == MODE_FILETREE)
         snprintf(left, sizeof(left), " ФАЙЛЫ ");

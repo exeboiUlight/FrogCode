@@ -124,6 +124,8 @@ static inline void set_color_fgbg(Color fg, Color bg)
         attron(COLOR_PAIR(10));
     } else if (bg == CLR_GREEN && fg == CLR_GREEN) {
         attron(COLOR_PAIR(11));
+    } else if (bg == CLR_WHITE && fg == CLR_BLACK) {
+        attron(COLOR_PAIR(13));
     } else if (bg == CLR_BLACK) {
         set_color(fg);
     }
@@ -143,6 +145,7 @@ static inline void colors_init(void)
     init_pair(10, COLOR_WHITE, COLOR_RED);
     init_pair(11, COLOR_GREEN, COLOR_GREEN);
     init_pair(12, COLOR_WHITE, COLOR_GREEN);
+    init_pair(13, COLOR_BLACK, COLOR_WHITE);
 }
 
 #endif

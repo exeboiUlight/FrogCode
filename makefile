@@ -33,11 +33,14 @@ endif
 
 install: $(TARGET)
 ifeq ($(OS),Windows_NT)
-	export PATH := ./
+	@if not exist "%LOCALAPPDATA%\Programs\FrogCode" mkdir "%LOCALAPPDATA%\Programs\FrogCode"
+	copy /Y "$(TARGET)" "%LOCALAPPDATA%\Programs\FrogCode\"
+	@setx PATH "%PATH%;%LOCALAPPDATA%\Programs\FrogCode" > nul 2>&1
+	@echo Installed to %LOCALAPPDATA%\Programs\FrogCode\
 else
-    mkdir -p $(PREFIX)/bin
-    cp $(TARGET) $(PREFIX)/bin/$(TARGET)
-    chmod 755 $(PREFIX)/bin/$(TARGET)
+	mkdir -p /usr/local/bin
+	cp $(TARGET) /usr/local/bin/$(TARGET)
+	chmod 755 /usr/local/bin/$(TARGET)
 endif
 
-.PHONY: all clean run intall
+.PHONY: all clean run install
