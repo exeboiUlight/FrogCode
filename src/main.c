@@ -34,18 +34,42 @@
 #endif
 
 #ifndef _WIN32
+#ifndef KEY_UP
 #define KEY_UP       0
+#endif
+#ifndef KEY_DOWN
 #define KEY_DOWN     0
+#endif
+#ifndef KEY_LEFT
 #define KEY_LEFT     0
+#endif
+#ifndef KEY_RIGHT
 #define KEY_RIGHT    0
+#endif
+#ifndef KEY_HOME
 #define KEY_HOME     0
+#endif
+#ifndef KEY_END
 #define KEY_END      0
+#endif
+#ifndef KEY_PPAGE
 #define KEY_PPAGE    0
+#endif
+#ifndef KEY_NPAGE
 #define KEY_NPAGE    0
+#endif
+#ifndef KEY_DC
 #define KEY_DC       0
-#define KEY_BACKSPACE 0
-#define KEY_ENTER    0
+#endif
+#ifndef KEY_BACKSPACE
+#define KEY_BACKSPACE 8
+#endif
+#ifndef KEY_ENTER
+#define KEY_ENTER    13
+#endif
+#ifndef KEY_F
 #define KEY_F(n)     (256 + n)
+#endif
 #endif
 
 #define VERSION "1.0"
@@ -114,14 +138,7 @@ static void plat_init(void) {
     keypad(stdscr, TRUE);
     curs_set(1);
     start_color();
-    init_pair(1, COLOR_WHITE, COLOR_BLUE);
-    init_pair(2, COLOR_GREEN, COLOR_BLACK);
-    init_pair(3, COLOR_RED, COLOR_BLACK);
-    init_pair(4, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(5, COLOR_CYAN, COLOR_BLACK);
-    init_pair(6, COLOR_BLACK, COLOR_GREEN);
-    init_pair(7, COLOR_WHITE, COLOR_GREEN);
-    init_pair(8, COLOR_GREEN, COLOR_GREEN);
+    colors_init();
 #endif
 }
 
@@ -151,15 +168,6 @@ static void plat_goto(int x, int y) {
     SetConsoleCursorPosition(hConsole, pos);
 #else
     move(y, x);
-#endif
-}
-
-static void plat_color(int attr) {
-#ifdef _WIN32
-    SetConsoleTextAttribute(hConsole, attr);
-#else
-    if (attr == -1) { attroff(A_BOLD); return; }
-    attron(COLOR_PAIR(attr));
 #endif
 }
 
@@ -232,29 +240,6 @@ static int plat_kbhit(void) {
 static void plat_set_title(const char *title) {
 #ifdef _WIN32
     SetConsoleTitleA(title);
-#endif
-}
-
-/* Linux color mapping: 1=sidebar, 2=green, 3=red, 4=yellow, 5=cyan, 6=terminal, 7=title, 8=sidebar_bg */
-static int win_to_ncurses(WORD wattr) {
-#ifdef _WIN32
-    (void)wattr; return 0;
-#else
-    if (wattr & BACKGROUND_BLUE) return 1;
-    if (wattr & FOREGROUND_INTENSITY) return 2;
-    if (wattr & FOREGROUND_RED) return 3;
-    if (wattr & FOREGROUND_GREEN) return 2;
-    return -1;
-#endif
-}
-
-static void plat_set_color_win(WORD wattr) {
-#ifdef _WIN32
-    SetConsoleTextAttribute(hConsole, wattr);
-#else
-    int pair = win_to_ncurses(wattr);
-    if (pair > 0) attron(COLOR_PAIR(pair));
-    else attroff(A_BOLD);
 #endif
 }
 
@@ -618,7 +603,7 @@ static void draw_all(void) {
     plat_cursor_visible(0);
 
     plat_goto(0, 0);
-    plat_set_color_win(BACKGROUND_BLUE | BACKGROUND_GREEN | FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+    set_color_fgbg(CLR_WHITE, CLR_BLUE);
     char title[128];
     snprintf(title, sizeof(title), " FrogCode v%s ", VERSION);
     int tlen = strlen(title);
@@ -627,15 +612,14 @@ static void draw_all(void) {
     for (int i = 0; i < con_w; i++) plat_putchar(' ');
     plat_goto(pad, 0);
     plat_print(title);
-    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+    reset_color();
 
     if (tab_count > 0) {
         plat_goto(0, 1);
         int x = 0;
         for (int i = 0; i < tab_count && x < con_w; i++) {
-            plat_set_color_win(i == active_tab
-                ? (BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE)
-                : (BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE | FOREGROUND_INTENSITY));
+            set_color_fgbg(i == active_tab ? CLR_WHITE : CLR_GREEN,
+                           i == active_tab ? CLR_BLUE : CLR_BLACK);
             char tlab[64];
             snprintf(tlab, sizeof(tlab), " %s%s ", tabs[i].buf.name, tabs[i].buf.modified ? "*" : "");
             int tl = strlen(tlab);
@@ -644,7 +628,7 @@ static void draw_all(void) {
             x += tl;
         }
         while (x < con_w) { plat_putchar(' '); x++; }
-        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        reset_color();
     }
 
     int term_h = terminal_open ? 6 : 0;
@@ -654,7 +638,7 @@ static void draw_all(void) {
     if (sidebar_open) {
         for (int i = 0; i < editor_h; i++) {
             plat_goto(0, i + 2);
-            plat_set_color_win(BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            set_color_fgbg(CLR_WHITE, CLR_BLUE);
             if (i == 0) {
                 const char *pname = sidebar_panel == PANEL_FILES ? " ФАЙЛЫ " : " ПОИСК ";
                 char padded[32];
@@ -664,7 +648,7 @@ static void draw_all(void) {
                 int idx = i - 1 + file_tree_scroll;
                 if (idx < file_tree_count) {
                     if (idx == file_tree_selected)
-                        plat_set_color_win(BACKGROUND_RED | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                        set_color_fgbg(CLR_WHITE, CLR_RED);
                     char padded[256];
                     snprintf(padded, sizeof(padded), "%-28s", file_tree_names[idx]);
                     plat_print(padded);
@@ -684,13 +668,13 @@ static void draw_all(void) {
 
     for (int i = 0; i < editor_h; i++) {
         plat_goto(sidebar_w, i + 2);
-        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        reset_color();
         plat_clear_line();
         if (!eb) continue;
         int line_idx = i + eb->scroll_y;
         plat_goto(sidebar_w, i + 2);
         if (line_idx < eb->line_count) {
-            plat_set_color_win(FOREGROUND_INTENSITY);
+            set_color(CLR_GREEN);
             plat_printf("%*d ", nw, line_idx + 1);
             char *line = eb->lines[line_idx];
             int len = strlen(line);
@@ -700,38 +684,38 @@ static void draw_all(void) {
             while (j < len && printed < text_w) {
                 char c = line[j];
                 if (c == '#') {
-                    plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                    set_color(CLR_GREEN);
                     while (j < len && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    reset_color();
                 } else if (c == '"') {
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_INTENSITY);
+                    set_color(CLR_RED);
                     plat_putchar(c); j++; printed++;
                     while (j < len && line[j] != '"' && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
                     if (j < len) { plat_putchar(line[j]); j++; printed++; }
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    reset_color();
                 } else if (c == '/' && j + 1 < len && line[j+1] == '/') {
-                    plat_set_color_win(FOREGROUND_INTENSITY);
+                    set_color(CLR_GREEN);
                     while (j < len && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    reset_color();
                 } else if (isdigit(c)) {
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN);
+                    set_color(CLR_YELLOW);
                     while (j < len && (isalnum(line[j]) || line[j] == '.') && printed < text_w) { plat_putchar(line[j]); j++; printed++; }
-                    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    reset_color();
                 } else if (isalpha(c) || c == '_') {
                     int wi = 0;
                     while (j < len && (isalnum(line[j]) || line[j] == '_') && wi < 255) wbuf[wi++] = line[j++];
                     wbuf[wi] = '\0';
-                    int kw = highlight_get_color(wbuf);
-                    if (kw) plat_set_color_win(kw);
+                    Color kw = highlight_get_color(wbuf);
+                    if (kw) set_color(kw);
                     for (int k = 0; k < wi && printed < text_w; k++) { plat_putchar(wbuf[k]); printed++; }
-                    if (kw) plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    if (kw) reset_color();
                 } else {
                     plat_putchar(c); j++; printed++;
                 }
             }
-            if (j < len) { plat_set_color_win(FOREGROUND_INTENSITY); plat_putchar('>'); plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE); }
+            if (j < len) { set_color(CLR_GREEN); plat_putchar('>'); reset_color(); }
         } else {
-            plat_set_color_win(FOREGROUND_INTENSITY);
+            set_color(CLR_GREEN);
             plat_putchar('~');
         }
     }
@@ -739,10 +723,10 @@ static void draw_all(void) {
     if (terminal_open) {
         int y0 = con_h - 6;
         plat_goto(0, y0);
-        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        set_color(CLR_GREEN);
         plat_print(" ТЕРМИНАЛ ");
         for (int i = 10; i < con_w; i++) plat_putchar(' ');
-        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        reset_color();
 
         char *lines_buf[64];
         int lc = 0;
@@ -765,10 +749,10 @@ static void draw_all(void) {
         int start = lc > 4 ? lc - 4 : 0;
         for (int i = 0; i < 4; i++) {
             plat_goto(0, y0 + 1 + i);
-            plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            reset_color();
             plat_clear_line();
             if (start + i < lc) {
-                plat_set_color_win(FOREGROUND_INTENSITY);
+                set_color(CLR_GREEN);
                 int slen = strlen(lines_buf[start + i]);
                 if (slen > con_w - 2) slen = con_w - 2;
                 char tc = lines_buf[start + i][slen];
@@ -779,15 +763,15 @@ static void draw_all(void) {
         }
 
         plat_goto(0, con_h - 1);
-        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        set_color(CLR_GREEN);
         plat_printf(">%s", terminal_cmd);
-        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        reset_color();
         plat_clear_line();
     }
 
     int sy = terminal_open ? con_h - 7 : con_h - 1;
     plat_goto(0, sy);
-    plat_set_color_win(BACKGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+    set_color_fgbg(CLR_WHITE, CLR_BLUE);
     char left[256], right[256];
     if (mode == MODE_FILETREE)
         snprintf(left, sizeof(left), " ФАЙЛЫ ");
@@ -803,13 +787,13 @@ static void draw_all(void) {
     int spad = con_w - llen - rlen;
     if (spad < 0) spad = 0;
     plat_printf("%s%*s%s", left, spad, "", right);
-    plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+    reset_color();
 
     if (input_mode) {
         plat_goto(0, con_h - 1);
-        plat_set_color_win(FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        set_color(CLR_GREEN);
         plat_printf("%s%s", input_prompt, input_buf);
-        plat_set_color_win(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        reset_color();
         plat_clear_line();
     }
 

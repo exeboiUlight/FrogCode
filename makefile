@@ -9,7 +9,7 @@ ifeq ($(OS),Windows_NT)
 	LDFLAGS += -luser32
 else
 	TARGET := $(TARGET)
-	LDFLAGS += -lncurses
+	LDFLAGS += $(shell pkg-config --libs ncurses)
 endif
 
 all: $(TARGET)

@@ -1,6 +1,3 @@
-#ifdef _WIN32
-#include <windows.h>
-#endif
 #include "highlight.h"
 #include <string.h>
 #include <ctype.h>
@@ -59,20 +56,23 @@ static int is_keyword(const char *word, const char **list) {
 
 void highlight_init(void) {}
 
-int highlight_get_color(const char *word) {
-    if (!word || !*word) return 0;
+Color highlight_get_color(const char *word)
+{
     if (is_keyword(word, keywords_c))
-        return FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+        return CLR_GREEN;
+
     if (is_keyword(word, keywords_cpp))
-        return FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+        return CLR_CYAN;
+
     if (is_keyword(word, keywords_py))
-        return FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-    return 0;
+        return CLR_YELLOW;
+
+    return CLR_DEFAULT;
 }
 
-int highlight_get_char_color(char c) {
-    if (c == '#') return FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-    if (c == '"') return FOREGROUND_RED | FOREGROUND_INTENSITY;
-    if (c == '\'') return FOREGROUND_RED | FOREGROUND_INTENSITY;
+Color highlight_get_char_color(char c) {
+    if (c == '#') return CLR_GREEN;
+    if (c == '"') return CLR_RED;
+    if (c == '\'') return CLR_RED;
     return 0;
 }
