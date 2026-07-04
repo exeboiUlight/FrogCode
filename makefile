@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Wno-format-truncation -Wno-stringop-truncation
 LDFLAGS =
-SRC = src/main.c src/editor.c src/highlight.c
+SRC = src/main.c src/editor.c src/highlight.c src/platform.c src/filetree.c src/terminal.c src/draw.c src/input.c
 TARGET = frogcode
 
 ifeq ($(OS),Windows_NT)
