@@ -1,5 +1,5 @@
-#include "app.h"
-#include "platform.h"
+#include "../core/app.h"
+#include "../platform/platform.h"
 #include "setup.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,7 +1,7 @@
 #ifndef APP_H
 #define APP_H
 
-#include "editor.h"
+#include "../editor/editor.h"
 #include "colors.h"
 
 #define VERSION "2.0"

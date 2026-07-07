@@ -1,7 +1,7 @@
-#include "app.h"
-#include "platform.h"
+#include "../core/app.h"
+#include "../platform/platform.h"
 #include "project.h"
-#include "editor.h"
+#include "../editor/editor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,6 +1,6 @@
-#include "app.h"
-#include "platform.h"
-#include "editor.h"
+#include "../core/app.h"
+#include "../platform/platform.h"
+#include "../editor/editor.h"
 #include "filetree.h"
 
 #ifdef _WIN32

@@ -1,6 +1,6 @@
-#include "app.h"
+#include "../core/app.h"
 #include "platform.h"
-#include "colors.h"
+#include "../core/colors.h"
 
 #ifdef _WIN32
 static HANDLE hConsole;

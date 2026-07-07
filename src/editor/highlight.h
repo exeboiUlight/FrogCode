@@ -1,6 +1,6 @@
 #ifndef HIGHLIGHT_H
 #define HIGHLIGHT_H
-#include "colors.h"
+#include "../core/colors.h"
 
 void highlight_init(void);
 Color highlight_get_color(const char *word);

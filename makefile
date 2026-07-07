@@ -12,7 +12,7 @@ ifndef ($(OS))
 	LDFLAGS += $(shell pkg-config --libs ncurses 2>/dev/null)
 endif
 
-SRC = src/main.c src/editor.c src/highlight.c src/platform.c src/filetree.c src/terminal.c src/draw.c src/input.c src/setup.c src/project.c src/hub.c
+SRC = src/core/main.c src/editor/editor.c src/editor/highlight.c src/platform/platform.c src/ui/filetree.c src/ui/terminal.c src/ui/draw.c src/ui/input.c src/project/setup.c src/project/project.c src/project/hub.c
 OBJ = $(SRC:.c=.o)
 DEP = $(OBJ:.o=.d)
 
@@ -22,13 +22,22 @@ $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 src/%.o: src/%.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
 
 clean:
 ifeq ($(OS),Windows_NT)
 	-del /Q $(TARGET) 2>nul
-	-del /Q src\*.o 2>nul
-	-del /Q src\*.d 2>nul
+	-del /Q src\core\*.o 2>nul
+	-del /Q src\core\*.d 2>nul
+	-del /Q src\editor\*.o 2>nul
+	-del /Q src\editor\*.d 2>nul
+	-del /Q src\ui\*.o 2>nul
+	-del /Q src\ui\*.d 2>nul
+	-del /Q src\platform\*.o 2>nul
+	-del /Q src\platform\*.d 2>nul
+	-del /Q src\project\*.o 2>nul
+	-del /Q src\project\*.d 2>nul
 else
 	rm -f $(TARGET) $(OBJ) $(DEP)
 endif

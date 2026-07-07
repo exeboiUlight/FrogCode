@@ -1,11 +1,11 @@
-#include "app.h"
-#include "platform.h"
-#include "editor.h"
-#include "highlight.h"
+#include "../core/app.h"
+#include "../platform/platform.h"
+#include "../editor/editor.h"
+#include "../editor/highlight.h"
 #include "draw.h"
-#include "setup.h"
-#include "project.h"
-#include "hub.h"
+#include "../project/setup.h"
+#include "../project/project.h"
+#include "../project/hub.h"
 
 static void ensure_line_check(EditorBuffer *eb, int idx) {
     if (idx >= 0 && idx < MAX_LINES && !eb->lines[idx]) {

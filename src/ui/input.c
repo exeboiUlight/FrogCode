@@ -1,12 +1,12 @@
-#include "app.h"
-#include "platform.h"
-#include "editor.h"
+#include "../core/app.h"
+#include "../platform/platform.h"
+#include "../editor/editor.h"
 #include "filetree.h"
 #include "terminal.h"
 #include "input.h"
-#include "setup.h"
-#include "project.h"
-#include "hub.h"
+#include "../project/setup.h"
+#include "../project/project.h"
+#include "../project/hub.h"
 
 void start_input(const char *prompt) {
     input_mode = 1;
